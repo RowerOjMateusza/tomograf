@@ -118,7 +118,7 @@ def main():
     image3 = st.empty()
     if(file!=None):
         image.image(file,width=500,caption='Input')
-        print( bresenham( [0,0], [5,3] )
+
         image2.image(file, width=500, caption='Input')
         image3.image(file, width=500, caption='Input')
 
