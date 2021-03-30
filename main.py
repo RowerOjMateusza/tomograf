@@ -6,6 +6,8 @@ import cv2
 import tempfile
 import math
 from bresenham import bresenham
+from skimage.filters.edges import convolve
+import skimage.filters.rank
 
 #zwraca punkty, które leza na prostej miedzy punktami A i B. Punkty to lista dwuelementowa ze wspolrzednymi punktow
 #algorytm dziala w pierwszej ćwiartce ukladu wspolrzednych, w dolnej polowce (y=0 a y=x)
@@ -83,10 +85,10 @@ def getPointsBresenham( A, B ):
 def value(A,B,input):
     x1,y1 = to_photo_cord(A[0],A[1],input.shape[0])
     x2,y2= to_photo_cord(B[0],B[1],input.shape[0])
-    points = getPointsBresenham([x1,y1],[x2,y2])
-    #print(x1,y1,x2,y2)
+    #points = getPointsBresenham([x1,y1],[x2,y2])
 
-   #points=list(bresenham(x1, y1,x2,y2))
+
+    points=list(bresenham(x1, y1,x2,y2))
     sum=0
     count=0
     for i in points:
@@ -99,7 +101,7 @@ def value(A,B,input):
     else :
         avg = sum/count
 
-    return avg
+    return avg,points
 
 #zwraca listę pozycji [x,y] detektorow
 def get_detector_positions(r, step, theta, number_of_detectors):
@@ -127,18 +129,39 @@ def rotate(r, alfa, theta, number_of_detectors):
 #normalizacja obrazu
 def normalize(photo):
     max_val = 0
+    min_val=1000000000000
     for row in photo:
         tmp = max(row)
+        minimum = min(row)
         if tmp > max_val:
             max_val = tmp
-    return photo / max_val
+        if minimum<min_val:
+            min_val=minimum
+    return (photo-min_val) / (max_val-min_val)
 
+
+def make_kernel(size):
+  mask=[]
+  for k in range(-size//2, size//2):
+      if k == 0:
+          mask.append(1)
+      else:
+          if k % 2 == 0:
+              mask.append(0)
+          if k % 2 == 1:
+              mask.append((-4/(math.pi**2))/k**2)
+  return mask
+
+def filter(sinogram):
+    kernel = make_kernel(100)
+    filtered = np.zeros(len(sinogram))
+    filtered = np.convolve(sinogram, kernel, mode='same') #splot
+    return filtered
 
 
 def main():
     st.sidebar.title("""Tomograf""")
     file = st.sidebar.file_uploader("Upuść plik",type=['png','jpeg','jpg','bmp'])
-
 
     kroki = st.sidebar.checkbox("pokaż kroki pośrednie")
     if kroki:
@@ -159,33 +182,38 @@ def main():
         img=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         sinogram=[]
+        end_image=np.zeros(img.shape)
         liczba_skanów=int(360/alfa)
 
-        for i in np.linspace(0,360,liczba_skanów):
+
+        for i in np.linspace(0,359,liczba_skanów):
             emiter,detector_list = rotate(int(img.shape[0]/2)-1,i,l,n)
-            tmp = []
+            tmp = np.zeros(img.shape)
+            sinogram_row=[]
+            points=[]
+            listOfPoints = []
             for id,j  in enumerate(detector_list):
-                x= value(emiter,j,img)
-                #print(x)
-                tmp.append(x)
-            sinogram.append(tmp)
+                x,points= value(emiter,j,img)
+                sinogram_row.append(x)
+                listOfPoints.append(points)
 
+            sinogram.append(sinogram_row)
+            sinogram_row = filter(sinogram_row)
+            for id,line in enumerate(listOfPoints):
+                for [x, y] in line:
+                        tmp[x][y] += sinogram_row[id]
 
-
-
+            K = np.ones([5, 5])
+            K = K / sum(K)
+            tmp = convolve(tmp, K)
+            end_image+=tmp
 
         sinogram=normalize(sinogram)
         image2.image(sinogram, caption='Sinogram')
-        image3.image(file, width=500, caption='Input')
 
-
-
-
-
-
-
-
-
+        end_image=normalize(end_image)
+        end_image = skimage.filters.rank.median(end_image, np.ones([3, 3]))
+        image3.image(end_image, width=500, caption='Input')
 
 
 
