@@ -8,7 +8,7 @@ import math
 from bresenham import bresenham
 from skimage.filters.edges import convolve
 import skimage.filters.rank
-import datetime as dt
+from datetime import date
 import pydicom
 from pydicom.data import get_testdata_files
 
@@ -143,7 +143,7 @@ def normalize(photo):
     return (photo-min_val) / (max_val-min_val)
 
 
-def dicom(image, name, description, sex, birth):
+def dicom(image, name, description, sex, birth, institution):
     filename = get_testdata_files("CT_small.dcm")[0];
     ds = pydicom.dcmread(filename);
 
@@ -156,10 +156,12 @@ def dicom(image, name, description, sex, birth):
     ds.PatientSex = sex;
     ds.PatientBirthDate = birth;
     
-    dt = datetime.datetime.now()
-    ds.StudyDate = dt.strftime('%Y%m%d')
-    ds.StudyTime = dt.strftime('%H%M%S.%d')
-    ds.InstitutionName = "PP"
+    today = date.today()
+
+    # dd/mm/YY
+    
+    ds.StudyDate = today.strftime("%d.%m.%Y")
+    ds.InstitutionName = institution
     ds.StudyDescription = description
 
     ds.save_as("Tomograf.dcm")
@@ -198,6 +200,12 @@ def main():
     n = st.sidebar.slider("Liczba dekoderów",50, 1000, 100,1)
     l = st.sidebar.slider("Rozwartość/rozpiętość układu emiter/detektor", 10,350,270, 10)
 
+    patient_name = str(st.sidebar.text_input("Imię pacjenta", "Jan Nowak"))
+    patient_sex= str(st.sidebar.text_input("Płeć pacjenta", "Male"))
+    patient_birth= str(st.sidebar.text_input("Rok urodzenia pacjenta", "1968"))
+    patient_institution= str(st.sidebar.text_input("Nazwa instytucji", "PP"))
+    patient_description= str(st.sidebar.text_input("Komentarz", "Uwagi"))
+    
     image = st.empty()
     image2 = st.empty()
     image3 = st.empty()
@@ -258,7 +266,7 @@ def main():
 
             end_image=normalize(end_image)
             end_image = skimage.filters.rank.median(end_image, np.ones([3, 3]))
-            dicom(end_image, "Jan Nowak", "opis", "Mezczyzna", "1968")
+            dicom(end_image, patient_name, patient_description, patient_birth, patient_birth, patient_institution)
             image3.image(end_image, width=500, caption='Input')
 
 
