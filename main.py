@@ -8,6 +8,9 @@ import math
 from bresenham import bresenham
 from skimage.filters.edges import convolve
 import skimage.filters.rank
+import datetime as dt
+import pydicom
+from pydicom.data import get_testdata_files
 
 #zwraca punkty, które leza na prostej miedzy punktami A i B. Punkty to lista dwuelementowa ze wspolrzednymi punktow
 #algorytm dziala w pierwszej ćwiartce ukladu wspolrzednych, w dolnej polowce (y=0 a y=x)
@@ -140,6 +143,30 @@ def normalize(photo):
     return (photo-min_val) / (max_val-min_val)
 
 
+def dicom(image, name, description, sex, birth):
+    filename = get_testdata_files("CT_small.dcm")[0];
+    ds = pydicom.dcmread(filename);
+
+    image2 = np.asarray(image, dtype=np.uint16)
+    ds.Rows = image2.shape[1]
+    ds.Columns = image2.shape[0]
+    ds.PixelData = image2.tostring()
+    
+    ds.PatientName = name;
+    ds.PatientSex = sex;
+    ds.PatientBirthDate = birth;
+    
+    dt = datetime.datetime.now()
+    ds.StudyDate = dt.strftime('%Y%m%d')
+    ds.StudyTime = dt.strftime('%H%M%S.%d')
+    ds.InstitutionName = "PP"
+    ds.StudyDescription = description
+
+    ds.save_as("Tomograf.dcm")
+
+
+
+
 def make_kernel(size):
   mask=[]
   for k in range(-size//2, size//2):
@@ -161,7 +188,7 @@ def filter(sinogram):
 
 def main():
     st.sidebar.title("""Tomograf""")
-    file = st.sidebar.file_uploader("Upuść plik",type=['png','jpeg','jpg','bmp'])
+    file = st.sidebar.file_uploader("Upuść plik",type=['dcm','png','jpeg','jpg','bmp'])
 
     kroki = st.sidebar.checkbox("pokaż kroki pośrednie")
     if kroki:
@@ -175,45 +202,65 @@ def main():
     image2 = st.empty()
     image3 = st.empty()
     if(file!=None):
-        file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
-        img = cv2.imdecode(file_bytes, 1)
-        image.image(file,width=500,caption='Input')
-        img=np.asarray(img)
-        img=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        nm =  file.name
+        if (nm.split(".")[1] == "dcm"):
+            
+            ds = pydicom.dcmread(nm);
+            imgDcm = ds.pixel_array
+            print(type(ds.PatientName))
+            capt = "Name: "+ str(ds.PatientName)+"\n" 
+            capt+= "Sex: "+ str(ds.PatientSex)+"\n"
+            capt+= "BirthDate: "+ str(ds.PatientBirthDate)+"\n"
+            capt+= "Study Date: "+ str(ds.StudyDate)+"\n"
+            capt+= "InstitutionName: "+ str(ds.InstitutionName)+"\n"
+            capt+= "Description: "+ str(ds.StudyDescription)+"\n"
+            st.text(capt)
+            image.image(imgDcm,width=500,caption="")
 
-        sinogram=[]
-        end_image=np.zeros(img.shape)
-        liczba_skanów=int(360/alfa)
+        else:
 
+            file_bytes = np.asarray(bytearray(file.read()), dtype=np.uint8)
+            img = cv2.imdecode(file_bytes, 1)
+            image.image(file,width=500,caption='Input')
+            img=np.asarray(img)
+            img=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
 
-        for i in np.linspace(0,359,liczba_skanów):
-            emiter,detector_list = rotate(int(img.shape[0]/2)-1,i,l,n)
-            tmp = np.zeros(img.shape)
-            sinogram_row=[]
-            points=[]
-            listOfPoints = []
-            for id,j  in enumerate(detector_list):
-                x,points= value(emiter,j,img)
-                sinogram_row.append(x)
-                listOfPoints.append(points)
+            sinogram=[]
+            end_image=np.zeros(img.shape)
+            liczba_skanów=int(360/alfa)
+        
 
-            sinogram.append(sinogram_row)
-            sinogram_row = filter(sinogram_row)
-            for id,line in enumerate(listOfPoints):
-                for [x, y] in line:
-                        tmp[x][y] += sinogram_row[id]
+            for i in np.linspace(0,359,liczba_skanów):
+                emiter,detector_list = rotate(int(img.shape[0]/2)-1,i,l,n)
+                tmp = np.zeros(img.shape)
+                sinogram_row=[]
+                points=[]
+                listOfPoints = []
+                for id,j  in enumerate(detector_list):
+                    x,points= value(emiter,j,img)
+                    sinogram_row.append(x)
+                    listOfPoints.append(points)
 
-            K = np.ones([5, 5])
-            K = K / sum(K)
-            tmp = convolve(tmp, K)
-            end_image+=tmp
+                sinogram.append(sinogram_row)
+                sinogram_row = filter(sinogram_row)
+                for id,line in enumerate(listOfPoints):
+                    for [x, y] in line:
+                            tmp[x][y] += sinogram_row[id]
 
-        sinogram=normalize(sinogram)
-        image2.image(sinogram, caption='Sinogram')
+                K = np.ones([5, 5])
+                K = K / sum(K)
+                tmp = convolve(tmp, K)
+                end_image+=tmp
 
-        end_image=normalize(end_image)
-        end_image = skimage.filters.rank.median(end_image, np.ones([3, 3]))
-        image3.image(end_image, width=500, caption='Input')
+            sinogram=normalize(sinogram)
+            image2.image(sinogram, caption='Sinogram')
+
+            end_image=normalize(end_image)
+            end_image = skimage.filters.rank.median(end_image, np.ones([3, 3]))
+            dicom(end_image, "Jan Nowak", "opis", "Mezczyzna", "1968")
+            image3.image(end_image, width=500, caption='Input')
+
 
 
 
