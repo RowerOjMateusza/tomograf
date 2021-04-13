@@ -12,6 +12,7 @@ from datetime import date
 import pydicom
 from pydicom.data import get_testdata_files
 
+
 #zwraca punkty, które leza na prostej miedzy punktami A i B. Punkty to lista dwuelementowa ze wspolrzednymi punktow
 #algorytm dziala w pierwszej ćwiartce ukladu wspolrzednych, w dolnej polowce (y=0 a y=x)
 def to_photo_cord(x, y, size):
@@ -89,21 +90,16 @@ def value(A,B,input):
     x1,y1 = to_photo_cord(A[0],A[1],input.shape[0])
     x2,y2= to_photo_cord(B[0],B[1],input.shape[0])
     #points = getPointsBresenham([x1,y1],[x2,y2])
-
-
     points=list(bresenham(x1, y1,x2,y2))
     sum=0
     count=0
     for i in points:
-       # print(i)
         sum+= input[int(i[0])][int(i[1])]
         count+=1
-
     if count==0 :
         avg=0
     else :
         avg = sum/count
-
     return avg,points
 
 #zwraca listę pozycji [x,y] detektorow
@@ -187,30 +183,55 @@ def filter(sinogram):
     filtered = np.convolve(sinogram, kernel, mode='same') #splot
     return filtered
 
+def make_square(photo):
+    s = max(photo.shape[0], photo.shape[1])
+    f = np.zeros((s, s))
+    ax, ay = (s - photo.shape[1]) // 2, (s - photo.shape[0]) // 2
+    f[ay:photo.shape[0] + ay, ax:ax + photo.shape[1]] = photo
+    return f
+
+def RMSE(orginal , estimate):
+    suma=0
+    cnt=0
+    for i in range(orginal.shape[0]):
+        for j in range (orginal.shape[1]):
+            x = orginal[i][j] - estimate[i][j]
+            cnt+=1
+            suma+=x**2
+    avg = suma/cnt
+    return math.sqrt(avg)
+
+
+
 
 def main():
     st.sidebar.title("""Tomograf""")
     file = st.sidebar.file_uploader("Upuść plik",type=['dcm','png','jpeg','jpg','bmp'])
 
-    kroki = st.sidebar.checkbox("pokaż kroki pośrednie")
+    kroki = st.sidebar.checkbox("pokaż kroki pośrednie",value=True)
+    filrowanie = st.sidebar.checkbox("użyj filtrowania",value=True)
+    konwulacja = st.sidebar.checkbox("konwulacja skanów",value=True)
+    mediana = st.sidebar.checkbox("filtr medianowy",value=True)
     if kroki:
         krok = st.sidebar.slider("Postępu obrotu emiterów i detektorów", 1, 360, 1, 1)
 
     alfa = st.sidebar.slider("Krok ∆α układu emiter/detektor", 0.5, 4.0, 1.0, 0.1)
-    n = st.sidebar.slider("Liczba dekoderów",50, 1000, 100,1)
-    l = st.sidebar.slider("Rozwartość/rozpiętość układu emiter/detektor", 10,350,270, 10)
+    n = st.sidebar.slider("Liczba detektorów",50, 1000, 100,10)
+    l = st.sidebar.slider("Rozwartość/rozpiętość układu emiter/detektor", 10,350,270, 5)
 
     patient_name = str(st.sidebar.text_input("Imię pacjenta", "Jan Nowak"))
     patient_sex= str(st.sidebar.text_input("Płeć pacjenta", "Male"))
     patient_birth= str(st.sidebar.text_input("Rok urodzenia pacjenta", "1968"))
     patient_institution= str(st.sidebar.text_input("Nazwa instytucji", "PP"))
     patient_description= str(st.sidebar.text_input("Komentarz", "Uwagi"))
+
     
     image = st.empty()
     image2 = st.empty()
     image3 = st.empty()
     if(file!=None):
         nm =  file.name
+        p = st.empty()
         if (nm.split(".")[1] == "dcm"):
             
             ds = pydicom.dcmread(nm);
@@ -232,7 +253,8 @@ def main():
             image.image(file,width=500,caption='Input')
             img=np.asarray(img)
             img=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
+            img = make_square(img)
+            img =normalize(img)
 
             sinogram=[]
             end_image=np.zeros(img.shape)
@@ -251,23 +273,35 @@ def main():
                     listOfPoints.append(points)
 
                 sinogram.append(sinogram_row)
-                sinogram_row = filter(sinogram_row)
+                if filrowanie:
+                    sinogram_row = filter(sinogram_row)
                 for id,line in enumerate(listOfPoints):
                     for [x, y] in line:
                             tmp[x][y] += sinogram_row[id]
-
-                K = np.ones([5, 5])
-                K = K / sum(K)
-                tmp = convolve(tmp, K)
+                if konwulacja:
+                    K = np.ones([5, 5])
+                    K = K / sum(K)
+                    tmp = convolve(tmp, K)
                 end_image+=tmp
-
+                if kroki:
+                    if i%krok <1 and i!=0:
+                        tmp_sinogram = normalize(sinogram)
+                        image2.image(tmp_sinogram, caption='Sinogram')
+                        tmp_end_image = normalize(end_image)
+                        image3.image(tmp_end_image, width=500, caption='Input')
+                        #p.write(RMSE(img,tmp_end_image))
             sinogram=normalize(sinogram)
             image2.image(sinogram, caption='Sinogram')
 
             end_image=normalize(end_image)
-            end_image = skimage.filters.rank.median(end_image, np.ones([3, 3]))
-            dicom(end_image, patient_name, patient_description, patient_birth, patient_birth, patient_institution)
+            if mediana:
+                end_image = skimage.filters.rank.median(end_image, np.ones([3, 3]))
             image3.image(end_image, width=500, caption='Input')
+            tmp_end_image = normalize(end_image)
+            print(RMSE(img, tmp_end_image))
+
+            dicom(end_image, patient_name, patient_description, patient_birth, patient_birth, patient_institution)
+
 
 
 
